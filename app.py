@@ -10,6 +10,8 @@ app = Flask(__name__)
 DOWNLOAD_DIR = os.path.join(os.path.dirname(__file__), "downloads")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+FFMPEG_PATH = os.environ.get("FFMPEG_PATH")
+
 jobs = {}
 
 
@@ -18,6 +20,8 @@ def run_download(job_id, url, format_choice, format_id):
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
     cmd = ["yt-dlp", "--no-playlist", "-o", out_template]
+    if FFMPEG_PATH:
+        cmd += ["--ffmpeg-location", FFMPEG_PATH]
 
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]

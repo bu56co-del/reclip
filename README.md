@@ -21,14 +21,19 @@ https://github.com/user-attachments/assets/419d3e50-c933-444b-8cab-a9724986ba05
 
 ## Quick Start
 
+Only `python3` is required up front. `yt-dlp` and `ffmpeg` are installed
+into a local venv on first run — no admin/`sudo` needed.
+
 ```bash
-brew install yt-dlp ffmpeg    # or apt install ffmpeg && pip install yt-dlp
 git clone https://github.com/averygan/reclip.git
 cd reclip
 ./reclip.sh
 ```
 
 Open **http://localhost:8899**.
+
+If you'd rather use system packages, install them with your package manager
+(`brew install yt-dlp ffmpeg` or `sudo apt install ffmpeg`) before running.
 
 Or with Docker:
 
