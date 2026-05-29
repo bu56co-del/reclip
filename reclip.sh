@@ -44,5 +44,8 @@ export PORT
 
 echo ""
 echo "  ReClip is running at http://localhost:$PORT"
+if [ -n "$COOKIES_BROWSER" ]; then
+    echo "  Using cookies from browser: $COOKIES_BROWSER"
+fi
 echo ""
 python3 app.py

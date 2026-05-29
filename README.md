@@ -49,6 +49,27 @@ docker build -t reclip . && docker run -p 8899:8899 reclip
 4. Select quality/resolution if available
 5. Click **Download** on individual videos, or **Download All**
 
+### Bypassing "Sign in to confirm" / "Access denied"
+
+Some sites (YouTube especially) block requests that aren't signed in. Run
+ReClip with `COOKIES_BROWSER` set to a browser you're logged into, and yt-dlp
+will reuse its cookies:
+
+```bash
+COOKIES_BROWSER=chrome ./reclip.sh
+```
+
+Supported values follow yt-dlp's `--cookies-from-browser` spec — `chrome`,
+`firefox`, `edge`, `safari`, `brave`, etc., optionally with a profile
+(`chrome:Default`). Close the browser first if it locks its cookie database.
+
+If a download still fails, your yt-dlp may be out of date — these platforms
+change often. Update it inside the venv:
+
+```bash
+source venv/bin/activate && pip install -U yt-dlp
+```
+
 ## Supported Sites
 
 Anything [yt-dlp supports](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md), including:
