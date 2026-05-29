@@ -11,6 +11,15 @@ DOWNLOAD_DIR = os.path.join(os.path.dirname(__file__), "downloads")
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 FFMPEG_PATH = os.environ.get("FFMPEG_PATH")
+# Pass browser cookies to yt-dlp to get past "Sign in to confirm" /
+# "Access denied" bot checks. Value is yt-dlp's --cookies-from-browser
+# spec, e.g. "chrome", "firefox", or "chrome:Default".
+COOKIES_BROWSER = os.environ.get("COOKIES_BROWSER")
+
+
+def cookie_args():
+    return ["--cookies-from-browser", COOKIES_BROWSER] if COOKIES_BROWSER else []
+
 
 jobs = {}
 
@@ -19,7 +28,7 @@ def run_download(job_id, url, format_choice, format_id):
     job = jobs[job_id]
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
-    cmd = ["yt-dlp", "--no-playlist", "-o", out_template]
+    cmd = ["yt-dlp", "--no-playlist", "-o", out_template] + cookie_args()
     if FFMPEG_PATH:
         cmd += ["--ffmpeg-location", FFMPEG_PATH]
 
@@ -89,7 +98,7 @@ def get_info():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    cmd = ["yt-dlp", "--no-playlist", "-j", url]
+    cmd = ["yt-dlp", "--no-playlist", "-j", url] + cookie_args()
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
