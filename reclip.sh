@@ -42,10 +42,24 @@ export FFMPEG_PATH
 PORT="${PORT:-8899}"
 export PORT
 
-echo ""
-echo "  ReClip is running at http://localhost:$PORT"
-if [ -n "$COOKIES_BROWSER" ]; then
-    echo "  Using cookies from browser: $COOKIES_BROWSER"
+if [ -n "$RECLIP_GUI" ]; then
+    if ! python3 -c "import webview" &> /dev/null; then
+        echo "Installing pywebview..."
+        pip install -q pywebview
+    fi
+    echo ""
+    echo "  ReClip GUI starting (closing the window stops the server)"
+    if [ -n "$COOKIES_BROWSER" ]; then
+        echo "  Using cookies from browser: $COOKIES_BROWSER"
+    fi
+    echo ""
+    python3 reclip_gui.py
+else
+    echo ""
+    echo "  ReClip is running at http://localhost:$PORT"
+    if [ -n "$COOKIES_BROWSER" ]; then
+        echo "  Using cookies from browser: $COOKIES_BROWSER"
+    fi
+    echo ""
+    python3 app.py
 fi
-echo ""
-python3 app.py

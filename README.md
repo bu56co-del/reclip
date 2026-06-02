@@ -35,6 +35,19 @@ Open **http://localhost:8899**.
 If you'd rather use system packages, install them with your package manager
 (`brew install yt-dlp ffmpeg` or `sudo apt install ffmpeg`) before running.
 
+### Native window (optional)
+
+Prefer a standalone window over the browser tab? Run the GUI launcher
+instead — it spins up Flask in the background and opens a native window
+via [pywebview](https://pywebview.flowrl.com/) (no admin needed):
+
+```bash
+./reclip-gui.sh
+```
+
+First run installs `pywebview` into the venv. Closing the window stops
+the server.
+
 Or with Docker:
 
 ```bash
