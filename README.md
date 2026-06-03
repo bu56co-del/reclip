@@ -106,6 +106,20 @@ Every launch (`reclip.sh`, `reclip-gui.sh`, `ReClip.command`, `ReClip.app`)
 sources `~/.reclip-env` automatically. You can put `PORT=9000` etc. there
 too.
 
+### `ERROR: The downloaded file is empty` (YouTube SABR)
+
+When YouTube hands yt-dlp a SABR-only stream (the new chunked format
+that requires a `po_token`), the download completes successfully with
+zero bytes. Force a player client that still serves a normal stream by
+adding to `~/.reclip-env`:
+
+```
+YTDLP_EXTRA_ARGS=--extractor-args youtube:player_client=tv_simply,mweb
+```
+
+`YTDLP_EXTRA_ARGS` is forwarded verbatim to every yt-dlp invocation, so
+any other flag (e.g. `--no-mtime`) can go there too.
+
 ### `pyobjc-core` build failure on macOS
 
 If `./reclip-gui.sh` first-run dies trying to compile `pyobjc-core` (clang

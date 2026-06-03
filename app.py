@@ -4,6 +4,7 @@ import uuid
 import glob
 import json
 import re
+import shlex
 import subprocess
 import threading
 import time
@@ -18,6 +19,10 @@ FFMPEG_PATH = os.environ.get("FFMPEG_PATH")
 # "Access denied" bot checks. Value is yt-dlp's --cookies-from-browser
 # spec, e.g. "chrome", "firefox", or "chrome:Default".
 COOKIES_BROWSER = os.environ.get("COOKIES_BROWSER")
+# Extra args forwarded verbatim to every yt-dlp invocation. Useful for
+# YouTube SABR workarounds, e.g. in ~/.reclip-env:
+#   YTDLP_EXTRA_ARGS=--extractor-args youtube:player_client=tv_simply,mweb
+EXTRA_ARGS = shlex.split(os.environ.get("YTDLP_EXTRA_ARGS", ""))
 
 
 def cookie_args():
@@ -46,7 +51,7 @@ def run_download(job_id, url, format_choice, format_id):
     job["phase"] = "Starting"
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
-    cmd = ["yt-dlp", "--no-playlist", "--newline", "-o", out_template] + cookie_args()
+    cmd = ["yt-dlp", "--no-playlist", "--newline", "-o", out_template] + cookie_args() + EXTRA_ARGS
     if FFMPEG_PATH:
         cmd += ["--ffmpeg-location", FFMPEG_PATH]
 
@@ -177,7 +182,7 @@ def get_info():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    cmd = ["yt-dlp", "--no-playlist", "-j", url] + cookie_args()
+    cmd = ["yt-dlp", "--no-playlist", "-j", url] + cookie_args() + EXTRA_ARGS
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
