@@ -19,13 +19,24 @@ FFMPEG_PATH = os.environ.get("FFMPEG_PATH")
 # "Access denied" bot checks. Value is yt-dlp's --cookies-from-browser
 # spec, e.g. "chrome", "firefox", or "chrome:Default".
 COOKIES_BROWSER = os.environ.get("COOKIES_BROWSER")
-# Default YouTube extractor args: web_safari + ios + mweb skip SABR-only
-# streams (which return "downloaded file is empty") and avoid the
-# tv_simply "page needs to be reloaded" trap. Other extractors silently
-# ignore the youtube:* key. Override via YTDLP_EXTRA_ARGS in ~/.reclip-env.
-DEFAULT_EXTRA_ARGS = ["--extractor-args", "youtube:player_client=web_safari,ios,mweb"]
+# Default YouTube extractor args. The client list depends on whether
+# cookies are enabled because yt-dlp silently skips cookie-incompatible
+# clients (ios, android, tv*) when cookies-from-browser is set, leaving
+# only web_safari (which YouTube force-SABRs) and dropping fallback.
+# Override via YTDLP_EXTRA_ARGS in ~/.reclip-env if needed.
+if COOKIES_BROWSER:
+    _DEFAULT_CLIENTS = "mweb,web_safari,web"
+else:
+    _DEFAULT_CLIENTS = "web_safari,ios,mweb,tv_simply"
+DEFAULT_EXTRA_ARGS = ["--extractor-args", f"youtube:player_client={_DEFAULT_CLIENTS}"]
 _user_args = shlex.split(os.environ.get("YTDLP_EXTRA_ARGS", ""))
 EXTRA_ARGS = _user_args if _user_args else DEFAULT_EXTRA_ARGS
+
+# Make HLS fallback fail fast — when YouTube serves a fragmented stream
+# that 403s, yt-dlp's defaults grind through (fragments * 10 retries)
+# attempts and a job can hang for hours. Quit at the first failure so
+# the user sees a real error in seconds.
+FAIL_FAST_ARGS = ["--abort-on-unavailable-fragments", "--fragment-retries", "3"]
 
 
 def cookie_args():
@@ -55,7 +66,7 @@ def run_download(job_id, url, format_choice, format_id):
     job["log"] = []
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
-    cmd = ["yt-dlp", "--no-playlist", "--newline", "-o", out_template] + cookie_args() + EXTRA_ARGS
+    cmd = ["yt-dlp", "--no-playlist", "--newline", "-o", out_template] + cookie_args() + EXTRA_ARGS + FAIL_FAST_ARGS
     if FFMPEG_PATH:
         cmd += ["--ffmpeg-location", FFMPEG_PATH]
 
