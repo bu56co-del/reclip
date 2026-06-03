@@ -52,6 +52,7 @@ def run_download(job_id, url, format_choice, format_id):
     job = jobs[job_id]
     job["progress"] = 0.0
     job["phase"] = "Starting"
+    job["log"] = []
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
     cmd = ["yt-dlp", "--no-playlist", "--newline", "-o", out_template] + cookie_args() + EXTRA_ARGS
@@ -104,6 +105,10 @@ def run_download(job_id, url, format_choice, format_id):
             # a terminal sees yt-dlp's real output — useful when downloads
             # hang in pre-download phases (metadata, cookies, etc.).
             print(f"  [yt-dlp:{job_id}] {line}", file=sys.stderr, flush=True)
+            # Stash in the job log (capped) for the UI panel.
+            job["log"].append(line)
+            if len(job["log"]) > 500:
+                job["log"].pop(0)
             last_lines.append(line)
             if len(last_lines) > 5:
                 last_lines.pop(0)
@@ -258,6 +263,14 @@ def check_status(job_id):
         "phase": job.get("phase"),
         "speed": job.get("speed"),
     })
+
+
+@app.route("/api/log/<job_id>")
+def get_log(job_id):
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify({"lines": job.get("log", [])})
 
 
 @app.route("/api/file/<job_id>")

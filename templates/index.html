@@ -379,6 +379,53 @@
       100% { transform: translateX(330%); }
     }
 
+    .log-section {
+      margin-top: 36px;
+      border: 1px solid rgba(0,0,0,0.1);
+      border-radius: 8px;
+      background: #1c1c1c;
+      overflow: hidden;
+    }
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #111;
+      color: #e0e0e0;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      border-bottom: 1px solid #000;
+    }
+    .log-title { letter-spacing: 0.05em; }
+    .log-jobid { color: #888; margin-left: 6px; font-size: 11px; }
+    .copy-btn {
+      background: #333;
+      color: #f0f0f0;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 4px 12px;
+      font-family: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .copy-btn:hover { background: #444; }
+    .copy-btn.copied { background: var(--success); color: #fff; border-color: var(--success); }
+    .log-pre {
+      margin: 0;
+      padding: 12px;
+      max-height: 320px;
+      overflow-y: auto;
+      color: #d0d0d0;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11.5px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
     .footer {
       margin-top: 48px;
       text-align: center;
@@ -424,6 +471,14 @@
     </div>
 
     <div id="cards" class="cards"></div>
+
+    <section id="log-section" class="log-section" hidden>
+      <div class="log-header">
+        <span class="log-title">yt-dlp log <span id="log-jobid" class="log-jobid"></span></span>
+        <button class="copy-btn" id="copyLogBtn" onclick="copyLog()">Copy</button>
+      </div>
+      <pre class="log-pre" id="log-pre"></pre>
+    </section>
 
     <div class="footer">
       YouTube &middot; TikTok &middot; Instagram &middot; Twitter/X &middot; Reddit &middot; Facebook<br>
@@ -664,6 +719,7 @@
           return;
         }
         c.jobId = data.job_id;
+        showLog(data.job_id);
         pollCard(idx);
       } catch (err) {
         c.status = 'error';
@@ -702,6 +758,61 @@
           renderCard(idx);
         }
       }, 1000);
+    }
+
+    let activeLogJobId = null;
+    let logTimer = null;
+
+    function showLog(jobId) {
+      activeLogJobId = jobId;
+      document.getElementById('log-section').hidden = false;
+      document.getElementById('log-jobid').textContent = '#' + jobId;
+      document.getElementById('log-pre').textContent = '';
+      if (logTimer) clearInterval(logTimer);
+      refreshLog();
+      logTimer = setInterval(refreshLog, 1000);
+    }
+
+    async function refreshLog() {
+      if (!activeLogJobId) return;
+      try {
+        const [logRes, statusRes] = await Promise.all([
+          fetch(`/api/log/${activeLogJobId}`),
+          fetch(`/api/status/${activeLogJobId}`),
+        ]);
+        const logData = await logRes.json();
+        const statusData = await statusRes.json();
+        const pre = document.getElementById('log-pre');
+        const nearBottom = (pre.scrollHeight - pre.scrollTop - pre.clientHeight) < 24;
+        pre.textContent = (logData.lines || []).join('\n');
+        if (nearBottom) pre.scrollTop = pre.scrollHeight;
+        if (statusData.status === 'done' || statusData.status === 'error') {
+          clearInterval(logTimer);
+          logTimer = null;
+        }
+      } catch {}
+    }
+
+    async function copyLog() {
+      const text = document.getElementById('log-pre').textContent;
+      const btn = document.getElementById('copyLogBtn');
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // Fallback for older browsers / non-HTTPS contexts.
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch {}
+        document.body.removeChild(ta);
+      }
+      btn.classList.add('copied');
+      btn.textContent = 'Copied!';
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.textContent = 'Copy';
+      }, 1500);
     }
 
     function saveCard(idx) {
