@@ -114,8 +114,12 @@ zero bytes. Force a player client that still serves a normal stream by
 adding to `~/.reclip-env`:
 
 ```
-YTDLP_EXTRA_ARGS=--extractor-args youtube:player_client=tv_simply,mweb
+YTDLP_EXTRA_ARGS="--extractor-args youtube:player_client=tv_simply,mweb"
 ```
+
+The `~/.reclip-env` file is sourced by bash, so **values containing
+spaces must be quoted** — without the surrounding `"..."` bash treats
+the second word as a command and you'll see `command not found`.
 
 `YTDLP_EXTRA_ARGS` is forwarded verbatim to every yt-dlp invocation, so
 any other flag (e.g. `--no-mtime`) can go there too.
