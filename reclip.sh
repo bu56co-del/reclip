@@ -21,6 +21,10 @@ if [ ! -d "venv" ]; then
     echo "Setting up virtual environment..."
     python3 -m venv venv
     source venv/bin/activate
+    # Upgrade pip first — venvs ship with whatever pip the base Python had,
+    # which on older systems (e.g. macOS Python 3.9) is too old to honour
+    # yanked release markers and ends up building broken sdists.
+    pip install -q --upgrade pip
     pip install -q -r requirements.txt
 else
     source venv/bin/activate

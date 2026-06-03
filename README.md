@@ -76,6 +76,17 @@ Supported values follow yt-dlp's `--cookies-from-browser` spec — `chrome`,
 `firefox`, `edge`, `safari`, `brave`, etc., optionally with a profile
 (`chrome:Default`). Close the browser first if it locks its cookie database.
 
+### `pyobjc-core` build failure on macOS
+
+If `./reclip-gui.sh` first-run dies trying to compile `pyobjc-core` (clang
+errors like `default-const-init-var-unsafe`), the venv is using a too-old
+`pip` that picked a yanked release. The script now upgrades `pip` on fresh
+venvs, so the easiest recovery is:
+
+```bash
+rm -rf venv && ./reclip-gui.sh
+```
+
 If a download still fails, your yt-dlp may be out of date — these platforms
 change often. Update it inside the venv:
 
