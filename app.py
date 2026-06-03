@@ -19,10 +19,13 @@ FFMPEG_PATH = os.environ.get("FFMPEG_PATH")
 # "Access denied" bot checks. Value is yt-dlp's --cookies-from-browser
 # spec, e.g. "chrome", "firefox", or "chrome:Default".
 COOKIES_BROWSER = os.environ.get("COOKIES_BROWSER")
-# Extra args forwarded verbatim to every yt-dlp invocation. Useful for
-# YouTube SABR workarounds, e.g. in ~/.reclip-env:
-#   YTDLP_EXTRA_ARGS=--extractor-args youtube:player_client=tv_simply,mweb
-EXTRA_ARGS = shlex.split(os.environ.get("YTDLP_EXTRA_ARGS", ""))
+# Default YouTube extractor args: web_safari + ios + mweb skip SABR-only
+# streams (which return "downloaded file is empty") and avoid the
+# tv_simply "page needs to be reloaded" trap. Other extractors silently
+# ignore the youtube:* key. Override via YTDLP_EXTRA_ARGS in ~/.reclip-env.
+DEFAULT_EXTRA_ARGS = ["--extractor-args", "youtube:player_client=web_safari,ios,mweb"]
+_user_args = shlex.split(os.environ.get("YTDLP_EXTRA_ARGS", ""))
+EXTRA_ARGS = _user_args if _user_args else DEFAULT_EXTRA_ARGS
 
 
 def cookie_args():

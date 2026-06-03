@@ -108,13 +108,18 @@ too.
 
 ### `ERROR: The downloaded file is empty` (YouTube SABR)
 
-When YouTube hands yt-dlp a SABR-only stream (the new chunked format
-that requires a `po_token`), the download completes successfully with
-zero bytes. Force a player client that still serves a normal stream by
-adding to `~/.reclip-env`:
+For YouTube, ReClip already passes
+`--extractor-args youtube:player_client=web_safari,ios,mweb` by default.
+These clients skip YouTube's SABR-only streams (which complete with zero
+bytes) and avoid the `tv_simply` "page needs to be reloaded" trap. Other
+extractors silently ignore the `youtube:` key, so the default is safe
+across all sites.
+
+If you need to override (e.g. a specific video that only works with
+another client), put your own value in `~/.reclip-env`:
 
 ```
-YTDLP_EXTRA_ARGS="--extractor-args youtube:player_client=tv_simply,mweb"
+YTDLP_EXTRA_ARGS="--extractor-args youtube:player_client=ios"
 ```
 
 The `~/.reclip-env` file is sourced by bash, so **values containing
