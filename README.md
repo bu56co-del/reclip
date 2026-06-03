@@ -50,14 +50,22 @@ the server.
 
 ### Double-click launcher (macOS)
 
-The repo also ships `ReClip.app`, a tiny macOS bundle that wraps
-`./reclip-gui.sh`. Double-click it in Finder — no Terminal opens, no
-command typing. First launch shows a notification while it sets up the
-venv; if anything fails, it pops an alert pointing at `reclip.log`.
+Two double-clickable launchers ship with the repo:
 
-The bundle must stay inside the repo (it `cd`s back to the repo root
-relative to its own path). To put a shortcut elsewhere, drag
-`ReClip.app` to the Dock or right-click → **Make Alias**.
+- **`ReClip.command`** — opens via Terminal. Works **everywhere**, including
+  when the repo lives in TCC-protected folders (Desktop, Documents,
+  Downloads, iCloud Drive). A Terminal window stays open while ReClip runs.
+- **`ReClip.app`** — a clean macOS app bundle, no Terminal popup. Only works
+  when the repo is **outside** TCC-protected folders (e.g. `~/reclip/`),
+  because unsigned `.app` bundles can't execute scripts in those folders
+  without a Privacy & Security override (which requires admin).
+
+If you see `Operation not permitted` in `reclip.log` when double-clicking
+`ReClip.app`, switch to `ReClip.command`, or move the repo out of Desktop
+to `~/reclip/`.
+
+Both launchers must stay inside the repo (they `cd` back to the repo root
+relative to themselves). Drag either to the Dock for a shortcut.
 
 Or with Docker:
 
