@@ -48,6 +48,17 @@ via [pywebview](https://pywebview.flowrl.com/) (no admin needed):
 First run installs `pywebview` into the venv. Closing the window stops
 the server.
 
+### Double-click launcher (macOS)
+
+The repo also ships `ReClip.app`, a tiny macOS bundle that wraps
+`./reclip-gui.sh`. Double-click it in Finder — no Terminal opens, no
+command typing. First launch shows a notification while it sets up the
+venv; if anything fails, it pops an alert pointing at `reclip.log`.
+
+The bundle must stay inside the repo (it `cd`s back to the repo root
+relative to its own path). To put a shortcut elsewhere, drag
+`ReClip.app` to the Dock or right-click → **Make Alias**.
+
 Or with Docker:
 
 ```bash
