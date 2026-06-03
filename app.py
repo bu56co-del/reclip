@@ -2,8 +2,10 @@ import os
 import uuid
 import glob
 import json
+import re
 import subprocess
 import threading
+import time
 from flask import Flask, request, jsonify, send_file, render_template
 
 app = Flask(__name__)
@@ -23,12 +25,20 @@ def cookie_args():
 
 jobs = {}
 
+# Matches yt-dlp's --newline progress lines, e.g.:
+#   [download]   1.4% of   12.34MiB at  2.34MiB/s ETA 00:08
+PROGRESS_RE = re.compile(r"\[download\]\s+([0-9.]+)%")
+
+DOWNLOAD_TIMEOUT = 300
+
 
 def run_download(job_id, url, format_choice, format_id):
     job = jobs[job_id]
+    job["progress"] = 0.0
+    job["phase"] = "Starting"
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
-    cmd = ["yt-dlp", "--no-playlist", "-o", out_template] + cookie_args()
+    cmd = ["yt-dlp", "--no-playlist", "--newline", "-o", out_template] + cookie_args()
     if FFMPEG_PATH:
         cmd += ["--ffmpeg-location", FFMPEG_PATH]
 
@@ -42,10 +52,56 @@ def run_download(job_id, url, format_choice, format_id):
     cmd.append(url)
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode != 0:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+
+        timed_out = {"flag": False}
+
+        def _watchdog():
+            time.sleep(DOWNLOAD_TIMEOUT)
+            if proc.poll() is None:
+                timed_out["flag"] = True
+                proc.kill()
+
+        threading.Thread(target=_watchdog, daemon=True).start()
+
+        last_lines = []
+        for line in proc.stdout:
+            line = line.rstrip()
+            if not line:
+                continue
+            last_lines.append(line)
+            if len(last_lines) > 5:
+                last_lines.pop(0)
+
+            m = PROGRESS_RE.search(line)
+            if m:
+                job["progress"] = float(m.group(1))
+                job["phase"] = "Downloading"
+            elif "Destination:" in line:
+                job["phase"] = "Downloading"
+            elif "Merging formats" in line:
+                job["phase"] = "Merging"
+                job["progress"] = 100.0
+            elif "[ExtractAudio]" in line:
+                job["phase"] = "Extracting audio"
+                job["progress"] = 100.0
+            elif "Deleting original" in line:
+                job["phase"] = "Cleaning up"
+
+        rc = proc.wait()
+        if timed_out["flag"]:
             job["status"] = "error"
-            job["error"] = result.stderr.strip().split("\n")[-1]
+            job["error"] = "Download timed out (5 min limit)"
+            return
+        if rc != 0:
+            job["status"] = "error"
+            job["error"] = (last_lines[-1] if last_lines else "yt-dlp failed").strip()
             return
 
         files = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}.*"))
@@ -69,6 +125,8 @@ def run_download(job_id, url, format_choice, format_id):
                     pass
 
         job["status"] = "done"
+        job["progress"] = 100.0
+        job["phase"] = "Done"
         job["file"] = chosen
         ext = os.path.splitext(chosen)[1]
         title = job.get("title", "").strip()
@@ -78,9 +136,6 @@ def run_download(job_id, url, format_choice, format_id):
             job["filename"] = f"{safe_title}{ext}" if safe_title else os.path.basename(chosen)
         else:
             job["filename"] = os.path.basename(chosen)
-    except subprocess.TimeoutExpired:
-        job["status"] = "error"
-        job["error"] = "Download timed out (5 min limit)"
     except Exception as e:
         job["status"] = "error"
         job["error"] = str(e)
@@ -167,6 +222,8 @@ def check_status(job_id):
         "status": job["status"],
         "error": job.get("error"),
         "filename": job.get("filename"),
+        "progress": job.get("progress"),
+        "phase": job.get("phase"),
     })
 
 

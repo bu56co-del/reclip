@@ -568,7 +568,9 @@
       if (c.status === 'ready') {
         actionHtml = `<button class="card-dl-btn" onclick="dlCard(${idx})">Download</button>${qualityChips}`;
       } else if (c.status === 'downloading') {
-        actionHtml = `<span class="card-status downloading"><span class="spin"></span> Downloading...</span>`;
+        const phase = c.phase || 'Downloading';
+        const pct = (typeof c.progress === 'number') ? ` ${Math.floor(c.progress)}%` : '';
+        actionHtml = `<span class="card-status downloading"><span class="spin"></span> ${esc(phase)}…${pct}</span>`;
       } else if (c.status === 'done') {
         actionHtml = `<button class="card-dl-btn done" onclick="saveCard(${idx})">Save</button>
           <span class="card-status done">${esc(c.filename || '')}</span>`;
@@ -642,6 +644,8 @@
         try {
           const res = await fetch(`/api/status/${c.jobId}`);
           const data = await res.json();
+          c.progress = data.progress;
+          c.phase = data.phase;
           if (data.status === 'done') {
             clearInterval(iv);
             c.status = 'done';
@@ -652,6 +656,8 @@
             clearInterval(iv);
             c.status = 'error';
             c.error = data.error;
+            renderCard(idx);
+          } else {
             renderCard(idx);
           }
         } catch {
