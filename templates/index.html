@@ -354,6 +354,31 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    .progress-bar {
+      display: block;
+      margin-top: 6px;
+      width: 100%;
+      max-width: 280px;
+      height: 6px;
+      background: rgba(0, 0, 0, 0.08);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      display: block;
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.3s ease;
+    }
+    .progress-fill.indeterminate {
+      width: 30% !important;
+      animation: indeterminate 1.2s ease-in-out infinite;
+    }
+    @keyframes indeterminate {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(330%); }
+    }
+
     .footer {
       margin-top: 48px;
       text-align: center;
@@ -569,8 +594,16 @@
         actionHtml = `<button class="card-dl-btn" onclick="dlCard(${idx})">Download</button>${qualityChips}`;
       } else if (c.status === 'downloading') {
         const phase = c.phase || 'Downloading';
-        const pct = (typeof c.progress === 'number') ? ` ${Math.floor(c.progress)}%` : '';
-        actionHtml = `<span class="card-status downloading"><span class="spin"></span> ${esc(phase)}…${pct}</span>`;
+        const hasPct = (typeof c.progress === 'number');
+        const indeterminate = phase === 'Merging' || phase === 'Extracting audio' || phase === 'Cleaning up' || !hasPct;
+        const pctText = (hasPct && !indeterminate) ? ` ${Math.floor(c.progress)}%` : '';
+        const fillStyle = indeterminate ? '' : ` style="width: ${c.progress || 0}%"`;
+        const fillClass = indeterminate ? 'progress-fill indeterminate' : 'progress-fill';
+        actionHtml = `
+          <span class="card-status downloading">
+            <span class="spin"></span> ${esc(phase)}…${pctText}
+            <span class="progress-bar"><span class="${fillClass}"${fillStyle}></span></span>
+          </span>`;
       } else if (c.status === 'done') {
         actionHtml = `<button class="card-dl-btn done" onclick="saveCard(${idx})">Save</button>
           <span class="card-status done">${esc(c.filename || '')}</span>`;
