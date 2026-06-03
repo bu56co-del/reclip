@@ -29,7 +29,11 @@ jobs = {}
 #   [download]   1.4% of   12.34MiB at  2.34MiB/s ETA 00:08
 PROGRESS_RE = re.compile(r"\[download\]\s+([0-9.]+)%")
 
-DOWNLOAD_TIMEOUT = 300
+# Kill yt-dlp if it produces no output for this long (probably stuck).
+# Resets on every line, so long videos with steady progress are fine.
+STALL_TIMEOUT = 300
+# Absolute backstop so a truly pathological job doesn't run forever.
+HARD_TIMEOUT = 3600
 
 
 def run_download(job_id, url, format_choice, format_id):
@@ -60,18 +64,27 @@ def run_download(job_id, url, format_choice, format_id):
             bufsize=1,
         )
 
-        timed_out = {"flag": False}
+        started = time.monotonic()
+        state = {"last_activity": started, "kill_reason": None}
 
         def _watchdog():
-            time.sleep(DOWNLOAD_TIMEOUT)
-            if proc.poll() is None:
-                timed_out["flag"] = True
-                proc.kill()
+            while proc.poll() is None:
+                now = time.monotonic()
+                if now - state["last_activity"] > STALL_TIMEOUT:
+                    state["kill_reason"] = f"no progress for {STALL_TIMEOUT // 60} min"
+                    proc.kill()
+                    return
+                if now - started > HARD_TIMEOUT:
+                    state["kill_reason"] = f"exceeded {HARD_TIMEOUT // 60} min total"
+                    proc.kill()
+                    return
+                time.sleep(5)
 
         threading.Thread(target=_watchdog, daemon=True).start()
 
         last_lines = []
         for line in proc.stdout:
+            state["last_activity"] = time.monotonic()
             line = line.rstrip()
             if not line:
                 continue
@@ -95,9 +108,9 @@ def run_download(job_id, url, format_choice, format_id):
                 job["phase"] = "Cleaning up"
 
         rc = proc.wait()
-        if timed_out["flag"]:
+        if state["kill_reason"]:
             job["status"] = "error"
-            job["error"] = "Download timed out (5 min limit)"
+            job["error"] = f"Download timed out ({state['kill_reason']})"
             return
         if rc != 0:
             job["status"] = "error"
