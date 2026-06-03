@@ -95,6 +95,17 @@ Supported values follow yt-dlp's `--cookies-from-browser` spec — `chrome`,
 `firefox`, `edge`, `safari`, `brave`, etc., optionally with a profile
 (`chrome:Default`). Close the browser first if it locks its cookie database.
 
+To persist this for the double-click launchers, drop the setting in
+`~/.reclip-env`:
+
+```bash
+echo 'COOKIES_BROWSER=chrome' >> ~/.reclip-env
+```
+
+Every launch (`reclip.sh`, `reclip-gui.sh`, `ReClip.command`, `ReClip.app`)
+sources `~/.reclip-env` automatically. You can put `PORT=9000` etc. there
+too.
+
 ### `pyobjc-core` build failure on macOS
 
 If `./reclip-gui.sh` first-run dies trying to compile `pyobjc-core` (clang

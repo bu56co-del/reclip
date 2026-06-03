@@ -2,6 +2,15 @@
 set -e
 cd "$(dirname "$0")"
 
+# Load persistent settings (COOKIES_BROWSER, PORT, etc.) from ~/.reclip-env
+# if present, so double-clicked launchers pick them up without needing
+# environment variables set in the shell.
+if [ -f "$HOME/.reclip-env" ]; then
+    set -a
+    source "$HOME/.reclip-env"
+    set +a
+fi
+
 # Only python3 is required up front — yt-dlp and ffmpeg are installed
 # into the venv below (no admin needed) if not already on PATH.
 if ! command -v python3 &> /dev/null; then
