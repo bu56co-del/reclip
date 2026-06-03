@@ -1,4 +1,5 @@
 import os
+import sys
 import uuid
 import glob
 import json
@@ -91,6 +92,10 @@ def run_download(job_id, url, format_choice, format_id):
             line = line.rstrip()
             if not line:
                 continue
+            # Echo to the parent's stderr so the user running ReClip from
+            # a terminal sees yt-dlp's real output — useful when downloads
+            # hang in pre-download phases (metadata, cookies, etc.).
+            print(f"  [yt-dlp:{job_id}] {line}", file=sys.stderr, flush=True)
             last_lines.append(line)
             if len(last_lines) > 5:
                 last_lines.pop(0)
