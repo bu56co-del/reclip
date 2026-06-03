@@ -597,11 +597,12 @@
         const hasPct = (typeof c.progress === 'number');
         const indeterminate = phase === 'Merging' || phase === 'Extracting audio' || phase === 'Cleaning up' || !hasPct;
         const pctText = (hasPct && !indeterminate) ? ` ${Math.floor(c.progress)}%` : '';
+        const speedText = (c.speed && !indeterminate) ? ` · ${esc(c.speed)}` : '';
         const fillStyle = indeterminate ? '' : ` style="width: ${c.progress || 0}%"`;
         const fillClass = indeterminate ? 'progress-fill indeterminate' : 'progress-fill';
         actionHtml = `
           <span class="card-status downloading">
-            <span class="spin"></span> ${esc(phase)}…${pctText}
+            <span class="spin"></span> ${esc(phase)}…${pctText}${speedText}
             <span class="progress-bar"><span class="${fillClass}"${fillStyle}></span></span>
           </span>`;
       } else if (c.status === 'done') {
@@ -679,6 +680,7 @@
           const data = await res.json();
           c.progress = data.progress;
           c.phase = data.phase;
+          c.speed = data.speed;
           if (data.status === 'done') {
             clearInterval(iv);
             c.status = 'done';

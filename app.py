@@ -27,7 +27,10 @@ jobs = {}
 
 # Matches yt-dlp's --newline progress lines, e.g.:
 #   [download]   1.4% of   12.34MiB at  2.34MiB/s ETA 00:08
+#   [download]  50.0% of ~ 150.00MiB at   45.32KiB/s ETA 25:00
+#   [download] 100% of   12.34MiB in 00:05
 PROGRESS_RE = re.compile(r"\[download\]\s+([0-9.]+)%")
+SPEED_RE = re.compile(r"\bat\s+(\S+)")
 
 # Kill yt-dlp if it produces no output for this long (probably stuck).
 # Resets on every line, so long videos with steady progress are fine.
@@ -96,6 +99,9 @@ def run_download(job_id, url, format_choice, format_id):
             if m:
                 job["progress"] = float(m.group(1))
                 job["phase"] = "Downloading"
+                speed_m = SPEED_RE.search(line)
+                if speed_m:
+                    job["speed"] = speed_m.group(1)
             elif "Destination:" in line:
                 job["phase"] = "Downloading"
             elif "Merging formats" in line:
@@ -237,6 +243,7 @@ def check_status(job_id):
         "filename": job.get("filename"),
         "progress": job.get("progress"),
         "phase": job.get("phase"),
+        "speed": job.get("speed"),
     })
 
 
