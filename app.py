@@ -148,9 +148,9 @@ def _should_retry_without_cookies(log_lines):
 
 # When the cookie-based clients fail with SABR/HLS-403, retry with a
 # broader set of non-cookie clients. tv_simply / ios sometimes fail
-# (page-reload, missing po_token); tv and mediaconnect occasionally
+# (page-reload, missing po_token); tv and web_embedded occasionally
 # succeed where they don't.
-RETRY_NO_COOKIES_ARGS = ["--extractor-args", "youtube:player_client=tv,tv_simply,ios,mediaconnect"]
+RETRY_NO_COOKIES_ARGS = ["--extractor-args", "youtube:player_client=tv,tv_simply,ios,web_embedded"]
 
 
 def _po_token_required(log_lines):
@@ -185,7 +185,7 @@ def run_download(job_id, url, format_choice, format_id):
             and COOKIES_BROWSER
             and _should_retry_without_cookies(job["log"])
         ):
-            notice = "--- ReClip: cookie-bearing clients hit SABR/HLS-403, retrying without cookies via tv,tv_simply,ios,mediaconnect ---"
+            notice = "--- ReClip: cookie-bearing clients hit SABR/HLS-403, retrying without cookies via tv,tv_simply,ios,web_embedded ---"
             print(f"  [yt-dlp:{job_id}] {notice}", file=sys.stderr, flush=True)
             job["log"].append(notice)
             job["phase"] = "Retrying without cookies"
