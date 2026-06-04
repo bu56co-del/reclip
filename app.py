@@ -146,9 +146,16 @@ def _should_retry_without_cookies(log_lines):
     return has_hls_403 or sabr_empty
 
 
-# When the cookie-based clients fail with SABR/HLS-403, retry with
-# tv_simply + ios (no cookies) — these often have working direct streams.
-RETRY_NO_COOKIES_ARGS = ["--extractor-args", "youtube:player_client=tv_simply,ios"]
+# When the cookie-based clients fail with SABR/HLS-403, retry with a
+# broader set of non-cookie clients. tv_simply / ios sometimes fail
+# (page-reload, missing po_token); tv and mediaconnect occasionally
+# succeed where they don't.
+RETRY_NO_COOKIES_ARGS = ["--extractor-args", "youtube:player_client=tv,tv_simply,ios,mediaconnect"]
+
+
+def _po_token_required(log_lines):
+    text = "\n".join(log_lines[-40:]).lower()
+    return "po token" in text or "po_token" in text or "potoken" in text
 
 
 def _clean_partial_files(job_id):
@@ -178,7 +185,7 @@ def run_download(job_id, url, format_choice, format_id):
             and COOKIES_BROWSER
             and _should_retry_without_cookies(job["log"])
         ):
-            notice = "--- ReClip: cookie-bearing clients hit SABR/HLS-403, retrying without cookies via tv_simply,ios ---"
+            notice = "--- ReClip: cookie-bearing clients hit SABR/HLS-403, retrying without cookies via tv,tv_simply,ios,mediaconnect ---"
             print(f"  [yt-dlp:{job_id}] {notice}", file=sys.stderr, flush=True)
             job["log"].append(notice)
             job["phase"] = "Retrying without cookies"
@@ -194,11 +201,17 @@ def run_download(job_id, url, format_choice, format_id):
             return
         if rc != 0:
             job["status"] = "error"
-            err_line = next(
-                (l for l in reversed(job["log"]) if l.startswith("ERROR")),
-                job["log"][-1] if job["log"] else "yt-dlp failed",
-            )
-            job["error"] = err_line.strip()
+            if _po_token_required(job["log"]):
+                job["error"] = (
+                    "YouTube requires a PO Token for this video — yt-dlp can't extract it "
+                    "automatically. See the yt-dlp PO Token Guide for a workaround."
+                )
+            else:
+                err_line = next(
+                    (l for l in reversed(job["log"]) if l.startswith("ERROR")),
+                    job["log"][-1] if job["log"] else "yt-dlp failed",
+                )
+                job["error"] = err_line.strip()
             return
 
         files = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}.*"))

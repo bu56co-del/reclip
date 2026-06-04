@@ -524,6 +524,7 @@
       if (err.includes('geo')) return 'Video not available in your region';
       if (err.includes('timed out') || err.includes('Timed out')) return 'Request timed out — try again';
       if (err.includes('network') || err.includes('Network')) return 'Network error — check your connection';
+      if (err.includes('PO Token') || err.includes('po_token')) return 'YouTube needs a PO Token for this video — see log for details';
       return err.length > 80 ? err.slice(0, 80) + '...' : err;
     }
 
