@@ -59,6 +59,106 @@ STALL_TIMEOUT = 300
 HARD_TIMEOUT = 3600
 
 
+def _build_cmd(url, format_choice, format_id, out_template, extra_args, with_cookies):
+    cmd = ["yt-dlp", "--no-playlist", "--newline", "-o", out_template]
+    if with_cookies and COOKIES_BROWSER:
+        cmd += ["--cookies-from-browser", COOKIES_BROWSER]
+    cmd += extra_args + FAIL_FAST_ARGS
+    if FFMPEG_PATH:
+        cmd += ["--ffmpeg-location", FFMPEG_PATH]
+    if format_choice == "audio":
+        cmd += ["-x", "--audio-format", "mp3"]
+    elif format_id:
+        cmd += ["-f", f"{format_id}+bestaudio/best", "--merge-output-format", "mp4"]
+    else:
+        cmd += ["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
+    cmd.append(url)
+    return cmd
+
+
+def _run_yt_dlp(cmd, job, job_id):
+    """Spawn yt-dlp, stream its output to job["log"] + stderr, parse
+    progress/phase/speed into job. Returns (rc, kill_reason)."""
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    started = time.monotonic()
+    state = {"last_activity": started, "kill_reason": None}
+
+    def _watchdog():
+        while proc.poll() is None:
+            now = time.monotonic()
+            if now - state["last_activity"] > STALL_TIMEOUT:
+                state["kill_reason"] = f"no progress for {STALL_TIMEOUT // 60} min"
+                proc.kill()
+                return
+            if now - started > HARD_TIMEOUT:
+                state["kill_reason"] = f"exceeded {HARD_TIMEOUT // 60} min total"
+                proc.kill()
+                return
+            time.sleep(5)
+
+    threading.Thread(target=_watchdog, daemon=True).start()
+
+    for line in proc.stdout:
+        state["last_activity"] = time.monotonic()
+        line = line.rstrip()
+        if not line:
+            continue
+        print(f"  [yt-dlp:{job_id}] {line}", file=sys.stderr, flush=True)
+        job["log"].append(line)
+        if len(job["log"]) > 500:
+            job["log"].pop(0)
+
+        m = PROGRESS_RE.search(line)
+        if m:
+            job["progress"] = float(m.group(1))
+            job["phase"] = "Downloading"
+            speed_m = SPEED_RE.search(line)
+            if speed_m:
+                job["speed"] = speed_m.group(1)
+        elif "Destination:" in line:
+            job["phase"] = "Downloading"
+        elif "Merging formats" in line:
+            job["phase"] = "Merging"
+            job["progress"] = 100.0
+        elif "[ExtractAudio]" in line:
+            job["phase"] = "Extracting audio"
+            job["progress"] = 100.0
+        elif "Deleting original" in line:
+            job["phase"] = "Cleaning up"
+
+    return proc.wait(), state["kill_reason"]
+
+
+def _should_retry_without_cookies(log_lines):
+    """True if the failure signature suggests YouTube served only SABR
+    or 403-HLS to the cookie-bearing clients. Non-cookie clients
+    (tv_simply, ios) often work for these videos."""
+    text = "\n".join(log_lines[-40:]).lower()
+    has_hls_403 = ("fragment" in text and "not found" in text and "403" in text)
+    sabr_empty = "downloaded file is empty" in text
+    return has_hls_403 or sabr_empty
+
+
+# When the cookie-based clients fail with SABR/HLS-403, retry with
+# tv_simply + ios (no cookies) — these often have working direct streams.
+RETRY_NO_COOKIES_ARGS = ["--extractor-args", "youtube:player_client=tv_simply,ios"]
+
+
+def _clean_partial_files(job_id):
+    for f in glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}.*")):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+
+
 def run_download(job_id, url, format_choice, format_id):
     job = jobs[job_id]
     job["progress"] = 0.0
@@ -66,90 +166,39 @@ def run_download(job_id, url, format_choice, format_id):
     job["log"] = []
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
-    cmd = ["yt-dlp", "--no-playlist", "--newline", "-o", out_template] + cookie_args() + EXTRA_ARGS + FAIL_FAST_ARGS
-    if FFMPEG_PATH:
-        cmd += ["--ffmpeg-location", FFMPEG_PATH]
-
-    if format_choice == "audio":
-        cmd += ["-x", "--audio-format", "mp3"]
-    elif format_id:
-        cmd += ["-f", f"{format_id}+bestaudio/best", "--merge-output-format", "mp4"]
-    else:
-        cmd += ["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
-
-    cmd.append(url)
-
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
+        cmd = _build_cmd(url, format_choice, format_id, out_template, EXTRA_ARGS, with_cookies=True)
+        rc, kill_reason = _run_yt_dlp(cmd, job, job_id)
 
-        started = time.monotonic()
-        state = {"last_activity": started, "kill_reason": None}
+        # Smart retry: if cookies were on and we hit the SABR/HLS-403
+        # signature, retry without cookies using non-cookie clients.
+        if (
+            rc != 0
+            and not kill_reason
+            and COOKIES_BROWSER
+            and _should_retry_without_cookies(job["log"])
+        ):
+            notice = "--- ReClip: cookie-bearing clients hit SABR/HLS-403, retrying without cookies via tv_simply,ios ---"
+            print(f"  [yt-dlp:{job_id}] {notice}", file=sys.stderr, flush=True)
+            job["log"].append(notice)
+            job["phase"] = "Retrying without cookies"
+            job["progress"] = 0.0
+            job.pop("speed", None)
+            _clean_partial_files(job_id)
+            cmd = _build_cmd(url, format_choice, format_id, out_template, RETRY_NO_COOKIES_ARGS, with_cookies=False)
+            rc, kill_reason = _run_yt_dlp(cmd, job, job_id)
 
-        def _watchdog():
-            while proc.poll() is None:
-                now = time.monotonic()
-                if now - state["last_activity"] > STALL_TIMEOUT:
-                    state["kill_reason"] = f"no progress for {STALL_TIMEOUT // 60} min"
-                    proc.kill()
-                    return
-                if now - started > HARD_TIMEOUT:
-                    state["kill_reason"] = f"exceeded {HARD_TIMEOUT // 60} min total"
-                    proc.kill()
-                    return
-                time.sleep(5)
-
-        threading.Thread(target=_watchdog, daemon=True).start()
-
-        last_lines = []
-        for line in proc.stdout:
-            state["last_activity"] = time.monotonic()
-            line = line.rstrip()
-            if not line:
-                continue
-            # Echo to the parent's stderr so the user running ReClip from
-            # a terminal sees yt-dlp's real output — useful when downloads
-            # hang in pre-download phases (metadata, cookies, etc.).
-            print(f"  [yt-dlp:{job_id}] {line}", file=sys.stderr, flush=True)
-            # Stash in the job log (capped) for the UI panel.
-            job["log"].append(line)
-            if len(job["log"]) > 500:
-                job["log"].pop(0)
-            last_lines.append(line)
-            if len(last_lines) > 5:
-                last_lines.pop(0)
-
-            m = PROGRESS_RE.search(line)
-            if m:
-                job["progress"] = float(m.group(1))
-                job["phase"] = "Downloading"
-                speed_m = SPEED_RE.search(line)
-                if speed_m:
-                    job["speed"] = speed_m.group(1)
-            elif "Destination:" in line:
-                job["phase"] = "Downloading"
-            elif "Merging formats" in line:
-                job["phase"] = "Merging"
-                job["progress"] = 100.0
-            elif "[ExtractAudio]" in line:
-                job["phase"] = "Extracting audio"
-                job["progress"] = 100.0
-            elif "Deleting original" in line:
-                job["phase"] = "Cleaning up"
-
-        rc = proc.wait()
-        if state["kill_reason"]:
+        if kill_reason:
             job["status"] = "error"
-            job["error"] = f"Download timed out ({state['kill_reason']})"
+            job["error"] = f"Download timed out ({kill_reason})"
             return
         if rc != 0:
             job["status"] = "error"
-            job["error"] = (last_lines[-1] if last_lines else "yt-dlp failed").strip()
+            err_line = next(
+                (l for l in reversed(job["log"]) if l.startswith("ERROR")),
+                job["log"][-1] if job["log"] else "yt-dlp failed",
+            )
+            job["error"] = err_line.strip()
             return
 
         files = glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}.*"))
@@ -178,7 +227,6 @@ def run_download(job_id, url, format_choice, format_id):
         job["file"] = chosen
         ext = os.path.splitext(chosen)[1]
         title = job.get("title", "").strip()
-        # Sanitize title for filename
         if title:
             safe_title = "".join(c for c in title if c not in r'\/:*?"<>|').strip()[:20].strip()
             job["filename"] = f"{safe_title}{ext}" if safe_title else os.path.basename(chosen)
