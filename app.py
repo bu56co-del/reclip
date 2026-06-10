@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 import uuid
 import glob
@@ -19,16 +20,75 @@ FFMPEG_PATH = os.environ.get("FFMPEG_PATH")
 # "Access denied" bot checks. Value is yt-dlp's --cookies-from-browser
 # spec, e.g. "chrome", "firefox", or "chrome:Default".
 COOKIES_BROWSER = os.environ.get("COOKIES_BROWSER")
-# Default YouTube extractor args. The client list depends on whether
-# cookies are enabled because yt-dlp silently skips cookie-incompatible
-# clients (ios, android, tv*) when cookies-from-browser is set, leaving
-# only web_safari (which YouTube force-SABRs) and dropping fallback.
-# Override via YTDLP_EXTRA_ARGS in ~/.reclip-env if needed.
-if COOKIES_BROWSER:
-    _DEFAULT_CLIENTS = "mweb,web_safari,web"
+
+
+def _find_executable(env_var, fallbacks, path_lookup=None):
+    candidate = os.environ.get(env_var)
+    if candidate:
+        candidate = os.path.expanduser(candidate)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    for c in fallbacks:
+        c = os.path.expanduser(c)
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    if path_lookup:
+        found = shutil.which(path_lookup)
+        if found:
+            return found
+    return None
+
+
+# yt-dlp binary: prefer an external standalone build (which ships its own
+# Python and tracks upstream weekly — much newer than what pip installs
+# into a Py3.9 venv where the latest supported release caps at 2025.10.14).
+# Fall back to whatever yt-dlp is in PATH (typically the venv's pip-installed
+# version set up by reclip.sh).
+YTDLP = _find_executable(
+    "YTDLP_PATH",
+    ["~/bin/yt-dlp_macos", "~/bin/yt-dlp"],
+    path_lookup="yt-dlp",
+) or "yt-dlp"
+
+# Deno JavaScript runtime: when present, recent yt-dlp uses it to solve
+# YouTube's player JS challenges — without that, many videos serve only
+# SABR/throttled streams.
+DENO = _find_executable("DENO_PATH", ["~/.deno/bin/deno"], path_lookup="deno")
+
+
+def _supports_flag(binary, flag):
+    try:
+        r = subprocess.run([binary, "--help"], capture_output=True, text=True, timeout=10)
+        return flag in r.stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+# Modern yt-dlp (2025.11+) understands --js-runtimes. When we have both a
+# capable binary and Deno, yt-dlp's own default clients (android_vr,
+# web_safari) handle PO Tokens and SABR correctly — so we drop our legacy
+# hardcoded player_client override that's now actively counterproductive.
+MODERN_YTDLP = _supports_flag(YTDLP, "--js-runtimes")
+USE_JS_RUNTIME = MODERN_YTDLP and bool(DENO)
+
+
+def js_runtime_args():
+    return ["--js-runtimes", f"deno:{DENO}"] if USE_JS_RUNTIME else []
+
+
+# Default YouTube extractor args.
+#   - Modern stack (yt-dlp 2025.11+): leave defaults alone — android_vr +
+#     web_safari + JS challenge solving cover PO-Token-gated videos.
+#   - Legacy stack: yt-dlp silently skips cookie-incompatible clients
+#     (ios, android, tv*) when cookies-from-browser is set, leaving only
+#     web_safari which YouTube force-SABRs. Pick a working list manually.
+# Either way, YTDLP_EXTRA_ARGS in ~/.reclip-env wins.
+if MODERN_YTDLP:
+    DEFAULT_EXTRA_ARGS = []
+elif COOKIES_BROWSER:
+    DEFAULT_EXTRA_ARGS = ["--extractor-args", "youtube:player_client=mweb,web_safari,web"]
 else:
-    _DEFAULT_CLIENTS = "web_safari,ios,mweb,tv_simply"
-DEFAULT_EXTRA_ARGS = ["--extractor-args", f"youtube:player_client={_DEFAULT_CLIENTS}"]
+    DEFAULT_EXTRA_ARGS = ["--extractor-args", "youtube:player_client=web_safari,ios,mweb,tv_simply"]
 _user_args = shlex.split(os.environ.get("YTDLP_EXTRA_ARGS", ""))
 EXTRA_ARGS = _user_args if _user_args else DEFAULT_EXTRA_ARGS
 
@@ -41,6 +101,15 @@ FAIL_FAST_ARGS = ["--abort-on-unavailable-fragments", "--fragment-retries", "3"]
 
 def cookie_args():
     return ["--cookies-from-browser", COOKIES_BROWSER] if COOKIES_BROWSER else []
+
+
+# Print which stack we ended up on so users running ReClip from a terminal
+# can immediately see whether the modern path engaged.
+print(f"  yt-dlp: {YTDLP}{' (modern)' if MODERN_YTDLP else ''}", file=sys.stderr)
+if DENO:
+    print(f"  deno  : {DENO}{' (JS challenges enabled)' if USE_JS_RUNTIME else ''}", file=sys.stderr)
+elif MODERN_YTDLP:
+    print("  deno  : not found — install for PO-Token / SABR-gated videos", file=sys.stderr)
 
 
 jobs = {}
@@ -60,7 +129,8 @@ HARD_TIMEOUT = 3600
 
 
 def _build_cmd(url, format_choice, format_id, out_template, extra_args, with_cookies):
-    cmd = ["yt-dlp", "--no-playlist", "--newline", "-o", out_template]
+    cmd = [YTDLP, "--no-playlist", "--newline", "-o", out_template]
+    cmd += js_runtime_args()
     if with_cookies and COOKIES_BROWSER:
         cmd += ["--cookies-from-browser", COOKIES_BROWSER]
     cmd += extra_args + FAIL_FAST_ARGS
@@ -179,9 +249,13 @@ def run_download(job_id, url, format_choice, format_id):
 
         # Smart retry: if cookies were on and we hit the SABR/HLS-403
         # signature, retry without cookies using non-cookie clients.
+        # Only on the legacy stack — modern yt-dlp + Deno handles SABR
+        # through its own android_vr default, and the tv_simply/ios
+        # fallbacks now require PO Tokens that we can't generate.
         if (
             rc != 0
             and not kill_reason
+            and not MODERN_YTDLP
             and COOKIES_BROWSER
             and _should_retry_without_cookies(job["log"])
         ):
@@ -262,7 +336,7 @@ def get_info():
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    cmd = ["yt-dlp", "--no-playlist", "-j", url] + cookie_args() + EXTRA_ARGS
+    cmd = [YTDLP, "--no-playlist", "-j", url] + js_runtime_args() + cookie_args() + EXTRA_ARGS
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         if result.returncode != 0:

@@ -106,6 +106,51 @@ Every launch (`reclip.sh`, `reclip-gui.sh`, `ReClip.command`, `ReClip.app`)
 sources `~/.reclip-env` automatically. You can put `PORT=9000` etc. there
 too.
 
+### Modern yt-dlp + Deno (recommended on macOS)
+
+The yt-dlp pip-installed into a Python 3.9 venv caps at 2025.10.14 (later
+releases require Python ≥ 3.10), and recent YouTube anti-bot updates need
+features only in newer yt-dlp. Two env vars let ReClip use a standalone
+yt-dlp build and a JavaScript runtime instead:
+
+```
+YTDLP_PATH=/Users/yourname/bin/yt-dlp_macos
+DENO_PATH=/Users/yourname/.deno/bin/deno
+```
+
+ReClip auto-detects both at `~/bin/yt-dlp_macos` and `~/.deno/bin/deno`
+if the env vars aren't set, so on a Mac that already has them the
+modern stack engages without any `~/.reclip-env` change.
+
+When the modern stack is active, ReClip:
+
+- forwards `--js-runtimes deno:<path>` so yt-dlp can solve YouTube's
+  player JS challenges (avoids the throttled / SABR streams),
+- **drops the legacy `player_client` override** — yt-dlp 2025.11+'s own
+  defaults (`android_vr`, `web_safari`) skip PO-Token-gated formats
+  better than any hand-picked list,
+- skips the legacy "retry without cookies" path (its `tv_simply,ios`
+  fallback now requires PO Tokens that aren't available anyway).
+
+You can verify on startup — the Terminal running ReClip prints e.g.
+
+```
+  yt-dlp: /Users/you/bin/yt-dlp_macos (modern)
+  deno  : /Users/you/.deno/bin/deno (JS challenges enabled)
+```
+
+Install hints (no admin):
+
+```bash
+# yt-dlp standalone macOS binary
+mkdir -p ~/bin
+curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos -o ~/bin/yt-dlp_macos
+chmod +x ~/bin/yt-dlp_macos
+
+# Deno
+curl -fsSL https://deno.land/install.sh | sh
+```
+
 ### `ERROR: The downloaded file is empty` (YouTube SABR)
 
 For YouTube, ReClip already passes
