@@ -138,10 +138,16 @@ def _build_cmd(url, format_choice, format_id, out_template, extra_args, with_coo
         cmd += ["--ffmpeg-location", FFMPEG_PATH]
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
-    elif format_id:
-        cmd += ["-f", f"{format_id}+bestaudio/best", "--merge-output-format", "mp4"]
     else:
-        cmd += ["-f", "bestvideo+bestaudio/best", "--merge-output-format", "mp4"]
+        # Prefer H.264 video + AAC audio so the merged mp4 plays in macOS
+        # QuickTime / Safari without VLC. -S is non-strict: if H.264 isn't
+        # available (e.g. Threads / IG VP9-only), yt-dlp falls back to the
+        # best alternative codec.
+        cmd += ["-S", "vcodec:h264,acodec:m4a", "--merge-output-format", "mp4"]
+        if format_id:
+            cmd += ["-f", f"{format_id}+bestaudio/best"]
+        else:
+            cmd += ["-f", "bestvideo+bestaudio/best"]
     cmd.append(url)
     return cmd
 
