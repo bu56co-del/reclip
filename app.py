@@ -128,6 +128,114 @@ STALL_TIMEOUT = 300
 HARD_TIMEOUT = 3600
 
 
+# Container/codec compatibility — QuickTime decodes H.264 reliably but
+# struggles with VP9/AV1 inside mp4 (Threads/IG often serve those). When
+# we detect the result is on the unfriendly list, we re-encode to H.264.
+QUICKTIME_FRIENDLY_CODECS = {"h264", "avc", "avc1"}
+
+TIME_RE = re.compile(r"time=(\d+):(\d+):(\d+(?:\.\d+)?)")
+DURATION_RE = re.compile(r"Duration:\s+(\d+):(\d+):(\d+(?:\.\d+)?)")
+FFMPEG_VIDEO_CODEC_RE = re.compile(r"Video:\s+(\w+)")
+FFMPEG_SPEED_RE = re.compile(r"speed=\s*(\S+)")
+
+
+def _ffmpeg_binary():
+    if FFMPEG_PATH:
+        return FFMPEG_PATH
+    return shutil.which("ffmpeg")
+
+
+def _probe_video_codec(path):
+    ff = _ffmpeg_binary()
+    if not ff:
+        return None
+    try:
+        r = subprocess.run(
+            [ff, "-hide_banner", "-i", path],
+            capture_output=True, text=True, timeout=15,
+        )
+        # ffmpeg exits non-zero because no output was specified; codec info
+        # is in stderr regardless.
+        m = FFMPEG_VIDEO_CODEC_RE.search(r.stderr)
+        return m.group(1).lower() if m else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _transcode_to_h264(src_path, job, job_id, source_codec):
+    ff = _ffmpeg_binary()
+    if not ff:
+        return None
+    root, ext = os.path.splitext(src_path)
+    dst_path = f"{root}.h264{ext}"
+    notice = (
+        f"--- ReClip: source codec is {source_codec.upper()}, transcoding to "
+        f"H.264 for QuickTime compatibility ---"
+    )
+    print(f"  [yt-dlp:{job_id}] {notice}", file=sys.stderr, flush=True)
+    job["log"].append(notice)
+    job["phase"] = "Transcoding to H.264"
+    job["progress"] = 0.0
+    job.pop("speed", None)
+
+    cmd = [
+        ff, "-y", "-i", src_path,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        dst_path,
+    ]
+    try:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            text=True, bufsize=1,
+        )
+    except OSError as e:
+        job["log"].append(f"ReClip: ffmpeg spawn failed ({e}); keeping original file.")
+        return None
+
+    duration = None
+    for line in proc.stderr:
+        line = line.rstrip()
+        if not line:
+            continue
+        if duration is None:
+            m_d = DURATION_RE.search(line)
+            if m_d:
+                h, m, s = m_d.groups()
+                duration = int(h) * 3600 + int(m) * 60 + float(s)
+        m_t = TIME_RE.search(line)
+        if m_t and duration:
+            h, m, s = m_t.groups()
+            cur = int(h) * 3600 + int(m) * 60 + float(s)
+            job["progress"] = min(99.5, (cur / duration) * 100)
+        m_sp = FFMPEG_SPEED_RE.search(line)
+        if m_sp:
+            job["speed"] = m_sp.group(1)
+
+    rc = proc.wait()
+    if rc != 0:
+        job["log"].append(
+            f"ReClip: transcode failed (ffmpeg exit {rc}); keeping the original "
+            f"{source_codec.upper()} file. Open it with VLC."
+        )
+        try:
+            os.remove(dst_path)
+        except OSError:
+            pass
+        return None
+
+    # Swap in the new file under the original filename so downstream
+    # filename / glob logic doesn't change.
+    try:
+        os.remove(src_path)
+        os.rename(dst_path, src_path)
+    except OSError as e:
+        job["log"].append(f"ReClip: post-transcode rename failed ({e}).")
+        return None
+    return src_path
+
+
 def _build_cmd(url, format_choice, format_id, out_template, extra_args, with_cookies):
     cmd = [YTDLP, "--no-playlist", "--newline", "-o", out_template]
     cmd += js_runtime_args()
@@ -313,6 +421,15 @@ def run_download(job_id, url, format_choice, format_id):
                     os.remove(f)
                 except OSError:
                     pass
+
+        # For video downloads, re-encode to H.264 if the source codec is
+        # something QuickTime can't decode (VP9/AV1). Threads/IG content
+        # routinely lands here; YouTube usually doesn't because the -S
+        # preference already picked H.264.
+        if format_choice != "audio":
+            codec = _probe_video_codec(chosen)
+            if codec and codec not in QUICKTIME_FRIENDLY_CODECS:
+                _transcode_to_h264(chosen, job, job_id, codec)
 
         job["status"] = "done"
         job["progress"] = 100.0
