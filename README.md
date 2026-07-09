@@ -129,8 +129,13 @@ When the modern stack is active, ReClip:
 - **drops the legacy `player_client` override** — yt-dlp 2025.11+'s own
   defaults (`android_vr`, `web_safari`) skip PO-Token-gated formats
   better than any hand-picked list,
-- skips the legacy "retry without cookies" path (its `tv_simply,ios`
-  fallback now requires PO Tokens that aren't available anyway).
+- **downloads cookie-free first, even when `COOKIES_BROWSER` is set.**
+  Deno already clears the bot check, so cookies aren't needed — and
+  sending them switches yt-dlp to authenticated clients whose adaptive
+  formats need a session-bound PO Token and then `403` on the actual
+  video data (`unable to download video data: HTTP Error 403: Forbidden`).
+  Cookies are added back automatically only when a download fails with a
+  login-required signature (private / members-only / age-gated video).
 
 You can verify on startup — the Terminal running ReClip prints e.g.
 

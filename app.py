@@ -110,6 +110,9 @@ if DENO:
     print(f"  deno  : {DENO}{' (JS challenges enabled)' if USE_JS_RUNTIME else ''}", file=sys.stderr)
 elif MODERN_YTDLP:
     print("  deno  : not found — install for PO-Token / SABR-gated videos", file=sys.stderr)
+if MODERN_YTDLP and COOKIES_BROWSER:
+    print("  cookies: held for retry only (modern stack downloads cookie-free "
+          "first to avoid PO-Token 403s)", file=sys.stderr)
 
 
 jobs = {}
@@ -342,6 +345,31 @@ def _po_token_required(log_lines):
     return "po token" in text or "po_token" in text or "potoken" in text
 
 
+def _needs_auth_signature(log_lines):
+    """True if the failure looks like it needs a logged-in session — a
+    bot-check, or a private / members-only / age-gated video. Used on the
+    modern stack to decide whether adding cookies would help (vs. cookies
+    being the thing that broke the download in the first place)."""
+    text = "\n".join(log_lines[-40:]).lower()
+    markers = (
+        "sign in to confirm",
+        "not a bot",
+        "this video is private",
+        "private video",
+        "members-only",
+        "members only",
+        "join this channel",
+        "age-restricted",
+        "age restricted",
+        "inappropriate for some users",
+        "sign in to view",
+        "login required",
+        "requires authentication",
+        "confirm your age",
+    )
+    return any(m in text for m in markers)
+
+
 def _clean_partial_files(job_id):
     for f in glob.glob(os.path.join(DOWNLOAD_DIR, f"{job_id}.*")):
         try:
@@ -358,30 +386,54 @@ def run_download(job_id, url, format_choice, format_id):
     out_template = os.path.join(DOWNLOAD_DIR, f"{job_id}.%(ext)s")
 
     try:
-        cmd = _build_cmd(url, format_choice, format_id, out_template, EXTRA_ARGS, with_cookies=True)
-        rc, kill_reason = _run_yt_dlp(cmd, job, job_id)
-
-        # Smart retry: if cookies were on and we hit the SABR/HLS-403
-        # signature, retry without cookies using non-cookie clients.
-        # Only on the legacy stack — modern yt-dlp + Deno handles SABR
-        # through its own android_vr default, and the tv_simply/ios
-        # fallbacks now require PO Tokens that we can't generate.
-        if (
-            rc != 0
-            and not kill_reason
-            and not MODERN_YTDLP
-            and COOKIES_BROWSER
-            and _should_retry_without_cookies(job["log"])
-        ):
-            notice = "--- ReClip: cookie-bearing clients hit SABR/HLS-403, retrying without cookies via tv,tv_simply,ios,web_embedded ---"
-            print(f"  [yt-dlp:{job_id}] {notice}", file=sys.stderr, flush=True)
-            job["log"].append(notice)
-            job["phase"] = "Retrying without cookies"
-            job["progress"] = 0.0
-            job.pop("speed", None)
-            _clean_partial_files(job_id)
-            cmd = _build_cmd(url, format_choice, format_id, out_template, RETRY_NO_COOKIES_ARGS, with_cookies=False)
+        if MODERN_YTDLP:
+            # Modern stack (yt-dlp 2025.11+ with Deno): Deno solves YouTube's
+            # bot challenge, so cookies are unnecessary AND often harmful —
+            # they switch yt-dlp to authenticated clients (tv_downgraded)
+            # whose adaptive-format URLs need a session-bound PO Token and
+            # then 403 on the actual video-data download. So try WITHOUT
+            # cookies first; only add them back if the video genuinely needs
+            # a login (private / members-only / age-gated / bot check).
+            cmd = _build_cmd(url, format_choice, format_id, out_template, EXTRA_ARGS, with_cookies=False)
             rc, kill_reason = _run_yt_dlp(cmd, job, job_id)
+
+            if (
+                rc != 0
+                and not kill_reason
+                and COOKIES_BROWSER
+                and _needs_auth_signature(job["log"])
+            ):
+                notice = "--- ReClip: video needs a logged-in session, retrying with cookies ---"
+                print(f"  [yt-dlp:{job_id}] {notice}", file=sys.stderr, flush=True)
+                job["log"].append(notice)
+                job["phase"] = "Retrying with cookies"
+                job["progress"] = 0.0
+                job.pop("speed", None)
+                _clean_partial_files(job_id)
+                cmd = _build_cmd(url, format_choice, format_id, out_template, EXTRA_ARGS, with_cookies=True)
+                rc, kill_reason = _run_yt_dlp(cmd, job, job_id)
+        else:
+            # Legacy stack (old pip yt-dlp, no Deno): cookies are needed to
+            # pass the bot check. Send them first, then retry WITHOUT cookies
+            # using a broad client list if we hit the SABR/HLS-403 signature.
+            cmd = _build_cmd(url, format_choice, format_id, out_template, EXTRA_ARGS, with_cookies=True)
+            rc, kill_reason = _run_yt_dlp(cmd, job, job_id)
+
+            if (
+                rc != 0
+                and not kill_reason
+                and COOKIES_BROWSER
+                and _should_retry_without_cookies(job["log"])
+            ):
+                notice = "--- ReClip: cookie-bearing clients hit SABR/HLS-403, retrying without cookies via tv,tv_simply,ios,web_embedded ---"
+                print(f"  [yt-dlp:{job_id}] {notice}", file=sys.stderr, flush=True)
+                job["log"].append(notice)
+                job["phase"] = "Retrying without cookies"
+                job["progress"] = 0.0
+                job.pop("speed", None)
+                _clean_partial_files(job_id)
+                cmd = _build_cmd(url, format_choice, format_id, out_template, RETRY_NO_COOKIES_ARGS, with_cookies=False)
+                rc, kill_reason = _run_yt_dlp(cmd, job, job_id)
 
         if kill_reason:
             job["status"] = "error"
