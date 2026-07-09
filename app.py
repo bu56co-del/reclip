@@ -84,13 +84,30 @@ def js_runtime_args():
 #     web_safari which YouTube force-SABRs. Pick a working list manually.
 # Either way, YTDLP_EXTRA_ARGS in ~/.reclip-env wins.
 if MODERN_YTDLP:
-    DEFAULT_EXTRA_ARGS = []
+    # Add the `tv` client to yt-dlp's own defaults. tv needs no PO Token
+    # (works cookie-free) and, unlike android_vr, exposes the full H.264
+    # (avc1) itag set — so the avc1-preferring format string below can
+    # grab a native 1080p H.264 stream and skip the post-download
+    # transcode instead of pulling a 4K VP9 and re-encoding it.
+    DEFAULT_EXTRA_ARGS = ["--extractor-args", "youtube:player_client=default,tv"]
 elif COOKIES_BROWSER:
     DEFAULT_EXTRA_ARGS = ["--extractor-args", "youtube:player_client=mweb,web_safari,web"]
 else:
     DEFAULT_EXTRA_ARGS = ["--extractor-args", "youtube:player_client=web_safari,ios,mweb,tv_simply"]
 _user_args = shlex.split(os.environ.get("YTDLP_EXTRA_ARGS", ""))
 EXTRA_ARGS = _user_args if _user_args else DEFAULT_EXTRA_ARGS
+
+# Auto video-format selector (used when the user hasn't picked a specific
+# resolution). Prefer native H.264 (avc1) + m4a: it plays in QuickTime
+# without a transcode, and since YouTube's avc1 tops out at 1080p this
+# also avoids pulling a huge 4K VP9/AV1 stream just to re-encode it down.
+# Falls back to best VP9/AV1 (which the transcode step then converts) only
+# when no avc1 exists at all — e.g. Threads / Instagram.
+VIDEO_FORMAT_AUTO = (
+    "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/"
+    "best[vcodec^=avc1]/"
+    "bestvideo+bestaudio/best"
+)
 
 # Make HLS fallback fail fast — when YouTube serves a fragmented stream
 # that 403s, yt-dlp's defaults grind through (fragments * 10 retries)
@@ -250,15 +267,13 @@ def _build_cmd(url, format_choice, format_id, out_template, extra_args, with_coo
     if format_choice == "audio":
         cmd += ["-x", "--audio-format", "mp3"]
     else:
-        # Prefer H.264 video + AAC audio so the merged mp4 plays in macOS
-        # QuickTime / Safari without VLC. -S is non-strict: if H.264 isn't
-        # available (e.g. Threads / IG VP9-only), yt-dlp falls back to the
-        # best alternative codec.
-        cmd += ["-S", "vcodec:h264,acodec:m4a", "--merge-output-format", "mp4"]
+        cmd += ["--merge-output-format", "mp4"]
         if format_id:
+            # User picked a specific resolution/format from the quality
+            # chips — honour it exactly (may be VP9/AV1, transcoded later).
             cmd += ["-f", f"{format_id}+bestaudio/best"]
         else:
-            cmd += ["-f", "bestvideo+bestaudio/best"]
+            cmd += ["-f", VIDEO_FORMAT_AUTO]
     cmd.append(url)
     return cmd
 
