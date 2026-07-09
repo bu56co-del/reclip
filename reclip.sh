@@ -2,6 +2,15 @@
 set -e
 cd "$(dirname "$0")"
 
+# Load persistent settings (COOKIES_BROWSER, PORT, etc.) from ~/.reclip-env
+# if present, so double-clicked launchers pick them up without needing
+# environment variables set in the shell.
+if [ -f "$HOME/.reclip-env" ]; then
+    set -a
+    source "$HOME/.reclip-env"
+    set +a
+fi
+
 # Only python3 is required up front — yt-dlp and ffmpeg are installed
 # into the venv below (no admin needed) if not already on PATH.
 if ! command -v python3 &> /dev/null; then
@@ -21,6 +30,10 @@ if [ ! -d "venv" ]; then
     echo "Setting up virtual environment..."
     python3 -m venv venv
     source venv/bin/activate
+    # Upgrade pip first — venvs ship with whatever pip the base Python had,
+    # which on older systems (e.g. macOS Python 3.9) is too old to honour
+    # yanked release markers and ends up building broken sdists.
+    pip install -q --upgrade pip
     pip install -q -r requirements.txt
 else
     source venv/bin/activate
@@ -42,7 +55,24 @@ export FFMPEG_PATH
 PORT="${PORT:-8899}"
 export PORT
 
-echo ""
-echo "  ReClip is running at http://localhost:$PORT"
-echo ""
-python3 app.py
+if [ -n "$RECLIP_GUI" ]; then
+    if ! python3 -c "import webview" &> /dev/null; then
+        echo "Installing pywebview..."
+        pip install -q pywebview
+    fi
+    echo ""
+    echo "  ReClip GUI starting (closing the window stops the server)"
+    if [ -n "$COOKIES_BROWSER" ]; then
+        echo "  Using cookies from browser: $COOKIES_BROWSER"
+    fi
+    echo ""
+    python3 reclip_gui.py
+else
+    echo ""
+    echo "  ReClip is running at http://localhost:$PORT"
+    if [ -n "$COOKIES_BROWSER" ]; then
+        echo "  Using cookies from browser: $COOKIES_BROWSER"
+    fi
+    echo ""
+    python3 app.py
+fi

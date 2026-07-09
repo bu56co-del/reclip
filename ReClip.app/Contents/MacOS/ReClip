@@ -1,0 +1,25 @@
+#!/bin/bash
+# Launch ReClip from a double-clicked .app bundle.
+# The bundle must live inside the repo: <repo>/ReClip.app/Contents/MacOS/ReClip
+# so we can chdir to the repo and invoke reclip-gui.sh.
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+cd "$REPO_DIR"
+
+# Finder launches with a minimal PATH — make sure Homebrew + standard
+# system locations are visible so python3 / ffmpeg can be found.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+LOG="$REPO_DIR/reclip.log"
+
+if [ ! -d venv ]; then
+    osascript -e 'display notification "Setting up ReClip (1–2 minutes on first run)…" with title "ReClip"' >/dev/null 2>&1 || true
+fi
+
+if ! ./reclip-gui.sh > "$LOG" 2>&1; then
+    osascript -e "display alert \"ReClip failed to start\" message \"See log: $LOG\"" >/dev/null 2>&1 || true
+    exit 1
+fi

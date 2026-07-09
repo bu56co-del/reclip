@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 assets/*.mov
 .DS_Store
+reclip.log
 .env
 .env.local
 .env.production
