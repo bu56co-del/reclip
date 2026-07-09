@@ -57,15 +57,30 @@ Two double-clickable launchers ship with the repo:
   Downloads, iCloud Drive). A Terminal window stays open while ReClip runs.
 - **`ReClip.app`** — a clean macOS app bundle, no Terminal popup. Only works
   when the repo is **outside** TCC-protected folders (e.g. `~/reclip/`),
-  because unsigned `.app` bundles can't execute scripts in those folders
-  without a Privacy & Security override (which requires admin).
+  because a `.app` located in those folders can't even execute its own
+  launcher.
 
 If you see `Operation not permitted` in `reclip.log` when double-clicking
-`ReClip.app`, switch to `ReClip.command`, or move the repo out of Desktop
-to `~/reclip/`.
+`ReClip.app`, use the Dock app below instead (or move the repo to `~/reclip/`).
 
-Both launchers must stay inside the repo (they `cd` back to the repo root
-relative to themselves). Drag either to the Dock for a shortcut.
+### Dock app (macOS, works even on Desktop) — recommended
+
+Run **`make-dock-app.command`** once. It builds `~/Applications/ReClip.app`
+(outside the TCC-protected zone) that launches the native GUI with no
+Terminal window. Because the app itself lives in `~/Applications`, it can
+run even when this repo is on the Desktop — on first launch macOS shows a
+normal *"allow access to your Desktop folder"* prompt; click **Allow** (no
+admin needed).
+
+```bash
+./make-dock-app.command   # or double-click it in Finder
+```
+
+Then open **Applications** (Finder → Go → Applications, or ⌘⇧A) and drag
+**ReClip.app** into your Dock. Closing the ReClip window stops the server.
+
+To give it a custom icon: copy any image, select `ReClip.app`, press ⌘I,
+click the small icon at the top-left of the Info window, and press ⌘V.
 
 Or with Docker:
 
